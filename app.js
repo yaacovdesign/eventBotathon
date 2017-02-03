@@ -18,17 +18,13 @@ const
   https = require('https'),  
   request = require('request');
 
+const {Wit, log} = require('node-wit');
+
 var app = express();
 app.set('port', process.env.PORT || 3978);
 app.set('view engine', 'ejs');
 app.use(bodyParser.json({ verify: verifyRequestSignature }));
 app.use(express.static('public'));
-
-/*
- * Be sure to setup your config values before running this code. You can 
- * set them using environment variables or modifying the config file in /config.
- *
- */
 
 // App Secret can be retrieved from the App Dashboard
 const APP_SECRET = (process.env.MESSENGER_APP_SECRET) ? 
@@ -68,17 +64,21 @@ const API_KEY = (process.env.API_KEY) ?
 // End Server LoL
 
 // Actions on LOL API
-const SUMMONER_BY_NAME = '/summoner/by-name/'
+const SUMMONER_BY_NAME = '/summoner/by-name/';
 
 
-//
+// End Actions on LoL API
 
+// Status User
+let user = {
+  name: '',
+  summonerName: '',
+  email: ''
+}
 
-/*
- * Use your own validation token. Check that the token used in the Webhook 
- * setup is the same token used here.
- *
- */
+// End Status Usuer
+
+// Webhook
 app.get('/webhook', function(req, res) {
   if (req.query['hub.mode'] === 'subscribe' &&
       req.query['hub.verify_token'] === VALIDATION_TOKEN) {
@@ -90,14 +90,6 @@ app.get('/webhook', function(req, res) {
   }  
 });
 
-
-/*
- * All callbacks for Messenger are POST-ed. They will be sent to the same
- * webhook. Be sure to subscribe your app to your page to receive callbacks
- * for your page. 
- * https://developers.facebook.com/docs/messenger-platform/product-overview/setup#subscribe_app
- *
- */
 app.post('/webhook', function (req, res) {
   var data = req.body;
 
@@ -129,25 +121,16 @@ app.post('/webhook', function (req, res) {
       });
     });
 
-    // Assume all went well.
-    //
-    // You must send back a 200, within 20 seconds, to let us know you've 
-    // successfully received the callback. Otherwise, the request will time out.
     res.sendStatus(200);
   }
 });
+// End Webhook
 
-/*
- * This path is used for account linking. The account linking call-to-action
- * (sendAccountLinking) is pointed to this URL. 
- * 
- */
+// Authorization Account Linking
 app.get('/authorize', function(req, res) {
   var accountLinkingToken = req.query.account_linking_token;
   var redirectURI = req.query.redirect_uri;
 
-  // Authorization Code should be generated per user by the developer. This will 
-  // be passed to the Account Linking callback.
   var authCode = "1234567890";
 
   // Redirect users to this URI on successful login
@@ -160,20 +143,11 @@ app.get('/authorize', function(req, res) {
   });
 });
 
-/*
- * Verify that the callback came from Facebook. Using the App Secret from 
- * the App Dashboard, we can verify the signature that is sent with each 
- * callback in the x-hub-signature field, located in the header.
- *
- * https://developers.facebook.com/docs/graph-api/webhooks#setup
- *
- */
+
 function verifyRequestSignature(req, res, buf) {
   var signature = req.headers["x-hub-signature"];
 
   if (!signature) {
-    // For testing, let's log an error. In production, you should throw an 
-    // error.
     console.error("Couldn't validate the signature.");
   } else {
     var elements = signature.split('=');
@@ -190,48 +164,24 @@ function verifyRequestSignature(req, res, buf) {
   }
 }
 
-/*
- * Authorization Event
- *
- * The value for 'optin.ref' is defined in the entry point. For the "Send to 
- * Messenger" plugin, it is the 'data-ref' field. Read more at 
- * https://developers.facebook.com/docs/messenger-platform/webhook-reference/authentication
- *
- */
 function receivedAuthentication(event) {
   var senderID = event.sender.id;
   var recipientID = event.recipient.id;
   var timeOfAuth = event.timestamp;
 
-  // The 'ref' field is set in the 'Send to Messenger' plugin, in the 'data-ref'
-  // The developer can set this to an arbitrary value to associate the 
-  // authentication callback with the 'Send to Messenger' click event. This is
-  // a way to do account linking when the user clicks the 'Send to Messenger' 
-  // plugin.
   var passThroughParam = event.optin.ref;
 
   console.log("Received authentication for user %d and page %d with pass " +
     "through param '%s' at %d", senderID, recipientID, passThroughParam, 
     timeOfAuth);
 
-  // When an authentication is received, we'll send a message back to the sender
-  // to let them know it was successful.
   sendTextMessage(senderID, "Authentication successful");
 }
+// Authorization Account Linking
+
 
 /*
  * Message Event
- *
- * This event is called when a message is sent to your page. The 'message' 
- * object format can vary depending on the kind of message that was received.
- * Read more at https://developers.facebook.com/docs/messenger-platform/webhook-reference/message-received
- *
- * For this example, we're going to echo any text that we get. If we get some 
- * special keywords ('button', 'generic', 'receipt'), then we'll send back
- * examples of those bubbles to illustrate the special message bubbles we've 
- * created. If we receive a message with an attachment (image, video, audio), 
- * then we'll simply confirm that we've received the attachment.
- * 
  */
 function receivedMessage(event) {
   var senderID = event.sender.id;
@@ -263,15 +213,49 @@ function receivedMessage(event) {
     console.log("Quick reply for message %s with payload %s",
       messageId, quickReplyPayload);
 
-    sendTextMessage(senderID, "Quick reply tapped");
+      switch(quickReplyPayload) {
+        case "CREATE_USER":
+           createUser(senderID);
+        break;
+
+        case "NAME_FAIL":
+          user.name = '';
+          inputNameAgain(senderID, "Vamos tentar novamente, digite o seu nome. Plz!");
+        break;
+
+        case "NAME_OK":
+          sendSuccesImageMessage(senderID);
+          sendQuickReplyRepeat(senderID, "Isso aí!!! Agora vamos para diversão.")
+        break;
+
+        case "CREATE_TEAM":
+          sendTextMessage(senderID, "Voce escolheu, " + quickReplyPayload);
+        break;
+
+        case "CREATE_TOURNAMENT":
+          sendTextMessage(senderID, "Voce escolheu, " + quickReplyPayload);
+        break;
+
+        case "JOIN_TEAM":
+          sendTextMessage(senderID, "Voce escolheu, " + quickReplyPayload);
+        break;
+
+        case "JOIN_TEAM":
+          sendTextMessage(senderID, "Voce escolheu, " + quickReplyPayload);
+        break;
+
+        default:
+          sendTextMessage(senderID, "Quick reply tapped");
+        break;
+      }
+
     return;
   }
 
-  if (messageText) {
+  if (user.name == '' ) {
+    getName(senderID, messageText);
+  } else if (messageText) {
 
-    // If we receive a text message, check to see if it matches any special
-    // keywords and send back the corresponding example. Otherwise, just echo
-    // the text we received.
     switch (messageText) {
       case 'image':
         sendImageMessage(senderID);
@@ -337,10 +321,6 @@ function receivedMessage(event) {
 
 /*
  * Delivery Confirmation Event
- *
- * This event is sent to confirm the delivery of a message. Read more about 
- * these fields at https://developers.facebook.com/docs/messenger-platform/webhook-reference/message-delivered
- *
  */
 function receivedDeliveryConfirmation(event) {
   var senderID = event.sender.id;
@@ -363,36 +343,27 @@ function receivedDeliveryConfirmation(event) {
 
 /*
  * Postback Event
- *
- * This event is called when a postback is tapped on a Structured Message. 
- * https://developers.facebook.com/docs/messenger-platform/webhook-reference/postback-received
- * 
  */
 function receivedPostback(event) {
   var senderID = event.sender.id;
   var recipientID = event.recipient.id;
   var timeOfPostback = event.timestamp;
 
-  // The 'payload' param is a developer-defined field which is set in a postback 
-  // button for Structured Messages. 
   var payload = event.postback.payload;
 
   console.log("Received postback for user %d and page %d with payload '%s' " + 
     "at %d", senderID, recipientID, payload, timeOfPostback);
 
-    // When a postback is called, we'll send a message back to the sender to 
-    // let them know it was successful
-
-    if(payload == "start") {
-        var firstName = getFirstName(senderID);
+    if(payload == "START") {
+      sendQuickReplyInitial(senderID, "Seja bem vindo! Selecione umas das opções para iniciarmos nossa jornada!");
     } else {
-        sendTextMessage(senderID, payload);
+      sendTextMessage(senderID, payload);
     }
-
-
 }
 
-
+/*
+* Info from LoL Server
+*/
 function getFirstName (id) {
     var options = { 
         method: 'GET',
@@ -408,17 +379,147 @@ function getFirstName (id) {
         console.log(body);
 
         var data = JSON.parse(body);
-        var initialMessage = 'Hi '+data.first_name+', seja bem vindo. Vamos começar pelo seu summoner name, digite-o por favor.';
-        sendTextMessage(id, initialMessage);
+
+        user.name = data.first_name;
+
+        var initialMessage = 'Hi '+user.name+', seja bem vindo. Vamos começar pelo seu summoner name, digite-o por favor.';
+        sendSummonerTextMessage(id, initialMessage);
     });
 }
 
+function getName (id, textInputed) {
+    var messageData = {
+    recipient: {
+      id: id
+    },
+    message: {
+      text: textInputed+", certo?",
+      quick_replies: [
+        {
+          "content_type":"text",
+          "title":"sim",
+          "payload":"NAME_OK"
+        },
+        {
+          "content_type":"text",
+          "title":"não",
+          "payload":"NAME_FAIL"
+        }
+      ]
+    }
+  };
+
+  callSendAPI(messageData);
+}
+
+function checkNameTextMessage (id, textInputed) {
+    var messageData = {
+    recipient: {
+      id: id
+    },
+    message: {
+      text: textInputed+", certo?",
+      quick_replies: [
+         {
+          "content_type":"text",
+          "title":"Criar usuário",
+          "payload":"CREATE_USER"
+        },
+        {
+          "content_type":"text",
+          "title":"Criar time",
+          "payload":"CREATE_TEAM"
+        }
+      ]
+    }
+  };
+
+  callSendAPI(messageData);
+}
+
+function sendSuccesImageMessage(recipientId) {
+  var messageData = {
+    recipient: {
+      id: recipientId
+    },
+    message: {
+      attachment: {
+        type: "image",
+        payload: {
+          url: SERVER_URL + "/assets/sucesso.jpg"
+        }
+      }
+    }
+  };
+
+  callSendAPI(messageData);
+}
+
+function getSummonerName (id, textInputed) {
+  // clean string of username
+  user.summonerName = textInputed.replace(/\s/g, '');
+  var url = SERVER_LOL.concat(SUMMONER_BY_NAME, user.summonerName);
+  var options = {
+    method: 'GET',
+    url: url,
+    qs: {
+      api_key: API_KEY
+    }
+  };
+
+  request(options, function(error, response, body) {
+     if (error) throw new Error(error);
+     console.log(body);
+
+     console.log(user.summonerName);
+     
+     var data = JSON.parse(body);
+     console.log(data[user.summonerName].name);
+
+    if(data[user.summonerName] != undefined) {
+      user.summonerName = data[user.summonerName].name;
+      sendQuickReplySuccessSummoner(id, "Verificamos com sucesso seu usuário");
+    } else {
+      user.summonerName = '';
+      sendTextMessage(id, "Não conseguimos encontrar seu usuário, por favor digite novamente.");
+    }
+  });
+}
+
+/*
+* End Info from LoL Server
+*/
+
+
+/*
+* Tournament service
+*/
+function createUser(senderID) {
+  sendTextMessage(senderID, "Vamos lá! Qual o seu  nome?");
+}
+
+function createTeam(senderID) {
+  
+}
+
+function createTournament(senderID) {
+  
+}
+
+function joinTeam(senderID) {
+  
+}
+
+function joinTournament(senderID) {
+  
+}
+
+/*
+* End Tournament service
+*/
+
 /*
  * Message Read Event
- *
- * This event is called when a previously-sent message has been read.
- * https://developers.facebook.com/docs/messenger-platform/webhook-reference/message-read
- * 
  */
 function receivedMessageRead(event) {
   var senderID = event.sender.id;
@@ -434,11 +535,6 @@ function receivedMessageRead(event) {
 
 /*
  * Account Link Event
- *
- * This event is called when the Link Account or UnLink Account action has been
- * tapped.
- * https://developers.facebook.com/docs/messenger-platform/webhook-reference/account-linking
- * 
  */
 function receivedAccountLink(event) {
   var senderID = event.sender.id;
@@ -453,7 +549,6 @@ function receivedAccountLink(event) {
 
 /*
  * Send an image using the Send API.
- *
  */
 function sendImageMessage(recipientId) {
   var messageData = {
@@ -475,7 +570,6 @@ function sendImageMessage(recipientId) {
 
 /*
  * Send a Gif using the Send API.
- *
  */
 function sendGifMessage(recipientId) {
   var messageData = {
@@ -497,7 +591,6 @@ function sendGifMessage(recipientId) {
 
 /*
  * Send audio using the Send API.
- *
  */
 function sendAudioMessage(recipientId) {
   var messageData = {
@@ -519,60 +612,70 @@ function sendAudioMessage(recipientId) {
 
 /*
  * Send a video using the Send API.
- *
  */
-function sendVideoMessage(recipientId) {
-  var messageData = {
-    recipient: {
-      id: recipientId
-    },
-    message: {
-      attachment: {
-        type: "video",
-        payload: {
-          url: SERVER_URL + "/assets/allofus480.mov"
-        }
-      }
-    }
-  };
+// function sendVideoMessage(recipientId) {
+//   var messageData = {
+//     recipient: {
+//       id: recipientId
+//     },
+//     message: {
+//       attachment: {
+//         type: "video",
+//         payload: {
+//           url: SERVER_URL + "/assets/allofus480.mov"
+//         }
+//       }
+//     }
+//   };
 
-  callSendAPI(messageData);
-}
+//   callSendAPI(messageData);
+// }
 
 /*
  * Send a file using the Send API.
- *
  */
-function sendFileMessage(recipientId) {
-  var messageData = {
-    recipient: {
-      id: recipientId
-    },
-    message: {
-      attachment: {
-        type: "file",
-        payload: {
-          url: SERVER_URL + "/assets/test.txt"
-        }
-      }
-    }
-  };
+// function sendFileMessage(recipientId) {
+//   var messageData = {
+//     recipient: {
+//       id: recipientId
+//     },
+//     message: {
+//       attachment: {
+//         type: "file",
+//         payload: {
+//           url: SERVER_URL + "/assets/test.txt"
+//         }
+//       }
+//     }
+//   };
 
-  callSendAPI(messageData);
-}
+//   callSendAPI(messageData);
+// }
 
 /*
  * Send a text message using the Send API.
  *
  */
+function sendSummonerTextMessage(recipientId, messageText) {
+  var messageData = {
+    recipient: {
+      id: recipientId
+    },
+    message: {
+      text: messageText
+    }
+  };
+
+  callSendAPI(messageData);
+}
+
 function sendTextMessage(recipientId, messageText) {
   var messageData = {
     recipient: {
       id: recipientId
     },
     message: {
-      text: messageText,
-      metadata: "DEVELOPER_DEFINED_METADATA"
+      text: messageText
     }
   };
 
@@ -581,7 +684,6 @@ function sendTextMessage(recipientId, messageText) {
 
 /*
  * Send a button message using the Send API.
- *
  */
 function sendButtonMessage(recipientId) {
   var messageData = {
@@ -766,6 +868,81 @@ function sendQuickReply(recipientId) {
   callSendAPI(messageData);
 }
 
+function sendQuickReplyInitial(recipientId, messageText) {
+  var messageData = {
+    recipient: {
+      id: recipientId
+    },
+    message: {
+      text: messageText,
+      quick_replies: [
+         {
+          "content_type":"text",
+          "title":"Criar usuário",
+          "payload":"CREATE_USER"
+        },
+        {
+          "content_type":"text",
+          "title":"Criar time",
+          "payload":"CREATE_TEAM"
+        },
+        {
+          "content_type":"text",
+          "title":"Criar campeonato",
+          "payload":"CREATE_TOURNAMENT"
+        },
+        {
+          "content_type":"text",
+          "title":"Entrar time",
+          "payload":"JOIN_TEAM"
+        },
+        {
+          "content_type":"text",
+          "title":"Entrar campeonato",
+          "payload":"JOIN_TOURNAMENT"
+        }
+      ]
+    }
+  };
+
+  callSendAPI(messageData);
+}
+
+function sendQuickReplyRepeat(recipientId, messageText) {
+  var messageData = {
+    recipient: {
+      id: recipientId
+    },
+    message: {
+      text: messageText,
+      quick_replies: [
+        {
+          "content_type":"text",
+          "title":"Criar time",
+          "payload":"CREATE_TEAM"
+        },
+        {
+          "content_type":"text",
+          "title":"Criar campeonato",
+          "payload":"CREATE_TOURNAMENT"
+        },
+        {
+          "content_type":"text",
+          "title":"Entrar time",
+          "payload":"JOIN_TEAM"
+        },
+        {
+          "content_type":"text",
+          "title":"Entrar campeonato",
+          "payload":"JOIN_TOURNAMENT"
+        }
+      ]
+    }
+  };
+
+  callSendAPI(messageData);
+}
+
 /*
  * Send a read receipt to indicate the message has been read
  *
@@ -879,12 +1056,105 @@ function callSendAPI(messageData) {
   });  
 }
 
+function setup () {
+  // Setting up Start Button
+request({
+  uri: 'https://graph.facebook.com/v2.6/me/thread_settings',
+  qs: { access_token: PAGE_ACCESS_TOKEN },
+  method: 'POST',
+  json: {
+    "setting_type":"call_to_actions",
+    "thread_state":"new_thread",
+    "call_to_actions":[
+      {
+        "payload":"START"
+      }
+    ]
+  }, function (error, response, body) {
+    if (!error && response.statusCode == 200) {
+      console.log('setting up start Button.');
+    }
+    else {
+      console.log(error);
+    }
+  }
+});
+// End Setting up Start Button
+
+// Setting up Start Button
+request({
+  uri: 'https://graph.facebook.com/v2.6/me/thread_settings',
+  qs: { access_token: PAGE_ACCESS_TOKEN },
+  method: 'POST',
+  json:{
+    "setting_type":"greeting",
+    "greeting":{
+      "text":"Olá {{user_first_name}}, seja bem vindo ao Torneio Maker Bot."
+    }
+  }, function (error, response, body) {
+    if (!error && response.statusCode == 200) {
+      console.log('setting up welcome text');
+    } else {
+      console.log(error);
+    }
+  }
+});
+// End Setting up Start Button
+
+// Menu persistent
+request({
+  uri: 'https://graph.facebook.com/v2.6/me/thread_settings',
+  qs: { access_token: PAGE_ACCESS_TOKEN },
+  method: 'POST',
+  json:{
+  "setting_type" : "call_to_actions",
+  "thread_state" : "existing_thread",
+  "call_to_actions":[
+    {
+      "type":"postback",
+      "title":"Ajuda",
+      "payload":"MENU_HELP"
+    },
+    {
+      "type":"postback",
+      "title":"Encontrar Torneio",
+      "payload":"FIND_TOURNMENT"
+    },
+    {
+      "type":"postback",
+      "title":"Encontrar Time",
+      "payload":"FIND_TEAM"
+    },
+    {
+      "type":"postback",
+      "title":"informações",
+      "url":"https://www.facebook.com/Torneio-maker-bot-101132157069633/",
+      "webview_height_ratio": "full",
+      "messenger_extensions": true
+    }
+  ]
+}, function (error, response, body) {
+    if (!error && response.statusCode == 200) {
+      console.log('setting up menu persistent');
+    } else {
+      console.log(error);
+    }
+  }
+});
+
+setup();
+
+// End Menu Persistent
+}
+
 // Start server
 // Webhooks must be available via SSL with a certificate signed by a valid 
 // certificate authority.
 app.listen(app.get('port'), function() {
   console.log('Node app is running on port', app.get('port'));
 });
+
+
 
 module.exports = app;
 
