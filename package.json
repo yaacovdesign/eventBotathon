@@ -1,0 +1,37 @@
+{
+  "name": "eventbotathon",
+  "version": "1.0.0",
+  "description": "this is a bot for making event on facebook",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "lint": "jshint --exclude node_modules .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yaacovdesign/eventBotathon.git"
+  },
+  "keywords": [
+    "bot",
+    "chatbot",
+    "messenger",
+    "facebook"
+  ],
+  "author": "tiago.balbino",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/yaacovdesign/eventBotathon/issues"
+  },
+  "homepage": "https://github.com/yaacovdesign/eventBotathon#readme",
+  "dependencies": {
+    "body-parser": "^1.16.0",
+    "config": "^1.25.1",
+    "ejs": "^2.5.5",
+    "express": "^4.14.1",
+    "request": "^2.79.0"
+  },
+  "engines": {
+    "node": "~4.1.2"
+  }
+}
