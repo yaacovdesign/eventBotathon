@@ -10,15 +10,13 @@
 /* jshint node: true, devel: true */
 'use strict';
 
-const 
+const
   bodyParser = require('body-parser'),
   config = require('config'),
   crypto = require('crypto'),
   express = require('express'),
-  https = require('https'),  
+  https = require('https'),
   request = require('request');
-
-const {Wit, log} = require('node-wit');
 
 var app = express();
 app.set('port', process.env.PORT || 3978);
@@ -27,7 +25,7 @@ app.use(bodyParser.json({ verify: verifyRequestSignature }));
 app.use(express.static('public'));
 
 // App Secret can be retrieved from the App Dashboard
-const APP_SECRET = (process.env.MESSENGER_APP_SECRET) ? 
+const APP_SECRET = (process.env.MESSENGER_APP_SECRET) ?
   process.env.MESSENGER_APP_SECRET :
   config.get('appSecret');
 
@@ -41,8 +39,8 @@ const PAGE_ACCESS_TOKEN = (process.env.MESSENGER_PAGE_ACCESS_TOKEN) ?
   (process.env.MESSENGER_PAGE_ACCESS_TOKEN) :
   config.get('pageAccessToken');
 
-// URL where the app is running (include protocol). Used to point to scripts and 
-// assets located at this address. 
+// URL where the app is running (include protocol). Used to point to scripts and
+// assets located at this address.
 const SERVER_URL = (process.env.SERVER_URL) ?
   (process.env.SERVER_URL) :
   config.get('serverURL');
@@ -53,7 +51,7 @@ if (!(APP_SECRET && VALIDATION_TOKEN && PAGE_ACCESS_TOKEN && SERVER_URL)) {
 }
 
 
-// Server LoL 
+// Server LoL
 const SERVER_LOL = (process.env.SERVER_LOL) ?
     (process.env.SERVER_LOL) :
     config.get('serverLOL');
@@ -73,7 +71,9 @@ const SUMMONER_BY_NAME = '/summoner/by-name/';
 let user = {
   name: '',
   summonerName: '',
-  email: ''
+  email: '',
+  team: '',
+  tournament: ''
 }
 
 // End Status Usuer
@@ -86,8 +86,8 @@ app.get('/webhook', function(req, res) {
     res.status(200).send(req.query['hub.challenge']);
   } else {
     console.error("Failed validation. Make sure the validation tokens match.");
-    res.sendStatus(403);          
-  }  
+    res.sendStatus(403);
+  }
 });
 
 app.post('/webhook', function (req, res) {
@@ -172,7 +172,7 @@ function receivedAuthentication(event) {
   var passThroughParam = event.optin.ref;
 
   console.log("Received authentication for user %d and page %d with pass " +
-    "through param '%s' at %d", senderID, recipientID, passThroughParam, 
+    "through param '%s' at %d", senderID, recipientID, passThroughParam,
     timeOfAuth);
 
   sendTextMessage(senderID, "Authentication successful");
@@ -189,7 +189,7 @@ function receivedMessage(event) {
   var timeOfMessage = event.timestamp;
   var message = event.message;
 
-  console.log("Received message for user %d and page %d at %d with message:", 
+  console.log("Received message for user %d and page %d at %d with message:",
     senderID, recipientID, timeOfMessage);
   console.log(JSON.stringify(message));
 
@@ -205,13 +205,15 @@ function receivedMessage(event) {
 
   if (isEcho) {
     // Just logging message echoes to console
-    console.log("Received echo for message %s and app %d with metadata %s", 
+    console.log("Received echo for message %s and app %d with metadata %s",
       messageId, appId, metadata);
     return;
   } else if (quickReply) {
     var quickReplyPayload = quickReply.payload;
     console.log("Quick reply for message %s with payload %s",
       messageId, quickReplyPayload);
+
+      //sendTypingOn(senderID);
 
       switch(quickReplyPayload) {
         case "CREATE_USER":
@@ -224,8 +226,7 @@ function receivedMessage(event) {
         break;
 
         case "NAME_OK":
-          sendSuccesImageMessage(senderID);
-          sendQuickReplyRepeat(senderID, "Isso aí!!! Agora vamos para diversão.")
+          sendQuickReplyRepeat(senderID, "Isso aí, vamos começar a diversão.");
         break;
 
         case "CREATE_TEAM":
@@ -240,8 +241,20 @@ function receivedMessage(event) {
           sendTextMessage(senderID, "Voce escolheu, " + quickReplyPayload);
         break;
 
-        case "JOIN_TEAM":
-          sendTextMessage(senderID, "Voce escolheu, " + quickReplyPayload);
+        case "JOIN_TOURNAMENT":
+          sendTournamentsAvailable(senderID);
+        break;
+
+        case "TURNUVA_BRONZE":
+
+        break;
+
+        case "TURNUVA_PRATA":
+          
+        break;
+
+        case "TURNUVA_OURO":
+          
         break;
 
         default:
@@ -254,6 +267,8 @@ function receivedMessage(event) {
 
   if (user.name == '' ) {
     getName(senderID, messageText);
+  } else if(user.name) {
+    sendQuickReplyRepeat(senderID, "Isso aí!!! Agora vamos para diversão.");
   } else if (messageText) {
 
     switch (messageText) {
@@ -291,19 +306,19 @@ function receivedMessage(event) {
 
       case 'quick reply':
         sendQuickReply(senderID);
-        break;        
+        break;
 
       case 'read receipt':
         sendReadReceipt(senderID);
-        break;        
+        break;
 
       case 'typing on':
         sendTypingOn(senderID);
-        break;        
+        break;
 
       case 'typing off':
         sendTypingOff(senderID);
-        break;        
+        break;
 
       case 'account linking':
         sendAccountLinking(senderID);
@@ -332,7 +347,7 @@ function receivedDeliveryConfirmation(event) {
 
   if (messageIDs) {
     messageIDs.forEach(function(messageID) {
-      console.log("Received delivery confirmation for message ID: %s", 
+      console.log("Received delivery confirmation for message ID: %s",
         messageID);
     });
   }
@@ -351,13 +366,30 @@ function receivedPostback(event) {
 
   var payload = event.postback.payload;
 
-  console.log("Received postback for user %d and page %d with payload '%s' " + 
+  console.log("Received postback for user %d and page %d with payload '%s' " +
     "at %d", senderID, recipientID, payload, timeOfPostback);
 
-    if(payload == "START") {
-      sendQuickReplyInitial(senderID, "Seja bem vindo! Selecione umas das opções para iniciarmos nossa jornada!");
-    } else {
-      sendTextMessage(senderID, payload);
+
+    switch(payload) {
+      case "START":
+        sendQuickReplyInitial(senderID, "Seja bem vindo! Selecione umas das opções para iniciarmos nossa jornada!");
+      break;
+
+      case "MENU_HELP":
+        sendQuickReplyRepeat(senderID, "Desculpe o transtorno, vamos ver em que posso ajudá-lo, ok?");
+      break;
+
+      case "FIND_TOURNMENT":
+        sendTournamentsAvailable(senderID);
+        break;
+
+      case "FIND_TEAM":
+        sendTeamsAvailable(senderID);
+        break;
+
+      default:
+         sendTextMessage(senderID, payload);
+      break;
     }
 }
 
@@ -365,10 +397,10 @@ function receivedPostback(event) {
 * Info from LoL Server
 */
 function getFirstName (id) {
-    var options = { 
+    var options = {
         method: 'GET',
         url: 'https://graph.facebook.com/v2.6/'+id,
-        qs: { 
+        qs: {
             fields: 'first_name',
             access_token: PAGE_ACCESS_TOKEN
         }
@@ -437,23 +469,23 @@ function checkNameTextMessage (id, textInputed) {
   callSendAPI(messageData);
 }
 
-function sendSuccesImageMessage(recipientId) {
-  var messageData = {
-    recipient: {
-      id: recipientId
-    },
-    message: {
-      attachment: {
-        type: "image",
-        payload: {
-          url: SERVER_URL + "/assets/sucesso.jpg"
-        }
-      }
-    }
-  };
+// function sendSuccesImageMessage(recipientId) {
+//   var messageData = {
+//     recipient: {
+//       id: recipientId
+//     },
+//     message: {
+//       attachment: {
+//         type: "image",
+//         payload: {
+//           url: SERVER_URL + "/assets/sucesso.jpg"
+//         }
+//       }
+//     }
+//   };
 
-  callSendAPI(messageData);
-}
+//   callSendAPI(messageData);
+// }
 
 function getSummonerName (id, textInputed) {
   // clean string of username
@@ -472,7 +504,7 @@ function getSummonerName (id, textInputed) {
      console.log(body);
 
      console.log(user.summonerName);
-     
+
      var data = JSON.parse(body);
      console.log(data[user.summonerName].name);
 
@@ -498,20 +530,24 @@ function createUser(senderID) {
   sendTextMessage(senderID, "Vamos lá! Qual o seu  nome?");
 }
 
+function inputNameAgain(senderID, message) {
+  sendTextMessage(senderID, message);
+}
+
 function createTeam(senderID) {
-  
+
 }
 
 function createTournament(senderID) {
-  
+
 }
 
 function joinTeam(senderID) {
-  
+
 }
 
 function joinTournament(senderID) {
-  
+
 }
 
 /*
@@ -712,7 +748,7 @@ function sendButtonMessage(recipientId) {
         }
       }
     }
-  };  
+  };
 
   callSendAPI(messageData);
 }
@@ -734,7 +770,7 @@ function sendGenericMessage(recipientId) {
           elements: [{
             title: "rift",
             subtitle: "Next-generation virtual reality",
-            item_url: "https://www.oculus.com/en-us/rift/",               
+            item_url: "https://www.oculus.com/en-us/rift/",
             image_url: SERVER_URL + "/assets/rift.png",
             buttons: [{
               type: "web_url",
@@ -748,7 +784,7 @@ function sendGenericMessage(recipientId) {
           }, {
             title: "touch",
             subtitle: "Your Hands, Now in VR",
-            item_url: "https://www.oculus.com/en-us/touch/",               
+            item_url: "https://www.oculus.com/en-us/touch/",
             image_url: SERVER_URL + "/assets/touch.png",
             buttons: [{
               type: "web_url",
@@ -763,10 +799,107 @@ function sendGenericMessage(recipientId) {
         }
       }
     }
-  };  
+  };
 
   callSendAPI(messageData);
 }
+
+function sendTeamsAvailable (recipientId) {
+   var messageData = {
+    recipient: {
+      id: recipientId
+    },
+    message: {
+      attachment: {
+        type: "template",
+        payload: {
+          template_type: "generic",
+          elements: [{
+            title: "Entrei no mato tinha 5",
+            item_url: "http://challonge.com/turnuva_bronze",
+            image_url: SERVER_URL + "/assets/sucesso.jpg",
+            buttons: [{
+              type: "postback",
+              title: "Selecionar",
+              payload: "TEAM_01",
+            }]
+          }, {
+            title: "Carregados pela Annie",
+            item_url: "http://challonge.com/Turnuva_Prata",
+            image_url: SERVER_URL + "/assets/sucesso.jpg",
+            buttons: [{
+              type: "postback",
+              title: "Selecionar",
+              payload: "TEAM_02"
+            }]
+          },
+          {
+            title: "Capivaras assassinas",
+            item_url: "http://challonge.com/Turnuva_Ouro",
+            image_url: SERVER_URL + "/assets/sucesso.jpg",
+            buttons: [{
+              type: "postback",
+              title: "Selecionar",
+              payload: "TEAM_03"
+            }]
+          }
+          ]
+        }
+      }
+    }
+  };
+
+  callSendAPI(messageData);
+}
+
+function sendTournamentsAvailable(recipientId) {
+  var messageData = {
+    recipient: {
+      id: recipientId
+    },
+    message: {
+      attachment: {
+        type: "template",
+        payload: {
+          template_type: "generic",
+          elements: [{
+            title: "Turnuva - Torneio de League of Legends - Elo Bronze",
+            item_url: "http://challonge.com/turnuva_bronze",
+            image_url: SERVER_URL + "/assets/sucesso.jpg",
+            buttons: [{
+              type: "postback",
+              title: "Selecionar",
+              payload: "TURNUVA_BRONZE",
+            }]
+          }, {
+            title: "Turnuva - Torneio de League of Legends - Elo Prata",
+            item_url: "http://challonge.com/Turnuva_Prata",
+            image_url: SERVER_URL + "/assets/sucesso.jpg",
+            buttons: [{
+              type: "postback",
+              title: "Selecionar",
+              payload: "TURNUVA_PRATA"
+            }]
+          },
+          {
+            title: "Turnuva - Torneio de League of Legends - Elo Ouro",
+            item_url: "http://challonge.com/Turnuva_Ouro",
+            image_url: SERVER_URL + "/assets/sucesso.jpg",
+            buttons: [{
+              type: "postback",
+              title: "Selecionar",
+              payload: "TURNUVA_OURO"
+            }]
+          }
+          ]
+        }
+      }
+    }
+  };
+
+  callSendAPI(messageData);
+}
+
 
 /*
  * Send a receipt message using the Send API.
@@ -788,8 +921,8 @@ function sendReceiptMessage(recipientId) {
           recipient_name: "Peter Chang",
           order_number: receiptId,
           currency: "USD",
-          payment_method: "Visa 1234",        
-          timestamp: "1428444852", 
+          payment_method: "Visa 1234",
+          timestamp: "1428444852",
           elements: [{
             title: "Oculus Rift",
             subtitle: "Includes: headset, sensor, remote",
@@ -1016,7 +1149,7 @@ function sendAccountLinking(recipientId) {
         }
       }
     }
-  };  
+  };
 
   callSendAPI(messageData);
 }
@@ -1027,8 +1160,8 @@ function menuPersistent(recipientId) {
 }
 
 /*
- * Call the Send API. The message data goes in the body. If successful, we'll 
- * get the message id in a response 
+ * Call the Send API. The message data goes in the body. If successful, we'll
+ * get the message id in a response
  *
  */
 function callSendAPI(messageData) {
@@ -1044,117 +1177,24 @@ function callSendAPI(messageData) {
       var messageId = body.message_id;
 
       if (messageId) {
-        console.log("Successfully sent message with id %s to recipient %s", 
+        console.log("Successfully sent message with id %s to recipient %s",
           messageId, recipientId);
       } else {
-      console.log("Successfully called Send API for recipient %s", 
+      console.log("Successfully called Send API for recipient %s",
         recipientId);
       }
     } else {
       console.error("Failed calling Send API", response.statusCode, response.statusMessage, body.error);
     }
-  });  
-}
-
-function setup () {
-  // Setting up Start Button
-request({
-  uri: 'https://graph.facebook.com/v2.6/me/thread_settings',
-  qs: { access_token: PAGE_ACCESS_TOKEN },
-  method: 'POST',
-  json: {
-    "setting_type":"call_to_actions",
-    "thread_state":"new_thread",
-    "call_to_actions":[
-      {
-        "payload":"START"
-      }
-    ]
-  }, function (error, response, body) {
-    if (!error && response.statusCode == 200) {
-      console.log('setting up start Button.');
-    }
-    else {
-      console.log(error);
-    }
-  }
-});
-// End Setting up Start Button
-
-// Setting up Start Button
-request({
-  uri: 'https://graph.facebook.com/v2.6/me/thread_settings',
-  qs: { access_token: PAGE_ACCESS_TOKEN },
-  method: 'POST',
-  json:{
-    "setting_type":"greeting",
-    "greeting":{
-      "text":"Olá {{user_first_name}}, seja bem vindo ao Torneio Maker Bot."
-    }
-  }, function (error, response, body) {
-    if (!error && response.statusCode == 200) {
-      console.log('setting up welcome text');
-    } else {
-      console.log(error);
-    }
-  }
-});
-// End Setting up Start Button
-
-// Menu persistent
-request({
-  uri: 'https://graph.facebook.com/v2.6/me/thread_settings',
-  qs: { access_token: PAGE_ACCESS_TOKEN },
-  method: 'POST',
-  json:{
-  "setting_type" : "call_to_actions",
-  "thread_state" : "existing_thread",
-  "call_to_actions":[
-    {
-      "type":"postback",
-      "title":"Ajuda",
-      "payload":"MENU_HELP"
-    },
-    {
-      "type":"postback",
-      "title":"Encontrar Torneio",
-      "payload":"FIND_TOURNMENT"
-    },
-    {
-      "type":"postback",
-      "title":"Encontrar Time",
-      "payload":"FIND_TEAM"
-    },
-    {
-      "type":"postback",
-      "title":"informações",
-      "url":"https://www.facebook.com/Torneio-maker-bot-101132157069633/",
-      "webview_height_ratio": "full",
-      "messenger_extensions": true
-    }
-  ]
-}, function (error, response, body) {
-    if (!error && response.statusCode == 200) {
-      console.log('setting up menu persistent');
-    } else {
-      console.log(error);
-    }
-  }
-});
-
-setup();
-
-// End Menu Persistent
+  });
 }
 
 // Start server
-// Webhooks must be available via SSL with a certificate signed by a valid 
+// Webhooks must be available via SSL with a certificate signed by a valid
 // certificate authority.
 app.listen(app.get('port'), function() {
   console.log('Node app is running on port', app.get('port'));
 });
-
-
 
 module.exports = app;
 
